@@ -1,3 +1,2 @@
-frontend/node_modules
-frontend/myenv
-backend/myenv
+**/node_modules/
+**/myenv/
