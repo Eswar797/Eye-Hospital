@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Optional
@@ -59,24 +59,6 @@ class QueueResponse(BaseModel):
 
     class Config:
         from_attributes = True
-class AllocateOPDRequest(BaseModel):
-    opd_type: OPDType
-
-class ReferPatientRequest(BaseModel):
-    to_opd: OPDType
-
-class ReferredPatientResponse(BaseModel):
-    id: int
-    token_number: str
-    name: str
-    age: int
-    registration_time: datetime
-    from_opd: Optional[str]
-    to_opd: Optional[str]
-
-    class Config:
-        from_attributes = True
-
 
 # Helper function to generate token number
 def generate_token_number(db: Session) -> str:
@@ -125,45 +107,13 @@ async def register_patient(
     
     return db_patient
 
-# Place static route BEFORE any dynamic /{patient_id} routes to avoid conflicts
-@router.get("/referred", response_model=List[ReferredPatientResponse])
-async def list_referred_patients(
-    from_opd: Optional[str] = Query(default=None, alias="from_opd"),
-    to_opd: Optional[str] = Query(default=None, alias="to_opd"),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    query = db.query(Patient).filter(Patient.current_status == PatientStatus.REFERRED)
-
-    valid_opds = {opd.value for opd in OPDType}
-    if from_opd and from_opd in valid_opds:
-        query = query.filter(Patient.referred_from == from_opd)
-    if to_opd and to_opd in valid_opds:
-        query = query.filter(Patient.referred_to == to_opd)
-
-    patients = query.order_by(Patient.registration_time.asc()).all()
-
-    return [
-        ReferredPatientResponse(
-            id=p.id,
-            token_number=p.token_number,
-            name=p.name,
-            age=p.age,
-            registration_time=p.registration_time,
-            from_opd=p.referred_from,
-            to_opd=p.referred_to,
-        ) for p in patients
-    ]
-
 @router.post("/{patient_id}/allocate-opd")
 async def allocate_opd(
     patient_id: int,
-    payload: AllocateOPDRequest,
+    opd_type: OPDType,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.REGISTRATION))
 ):
-    print("patients.py: allocate_opd")
-    opd_type = payload.opd_type
     patient = db.query(Patient).filter(Patient.id == patient_id).first()
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
@@ -233,7 +183,7 @@ async def update_patient_status(
     if status == PatientStatus.DILATED:
         patient.is_dilated = True
         patient.dilation_time = datetime.utcnow()
-    elif status == PatientStatus.COMPLETED:
+    elif status == PatientStatus.END_VISIT:
         patient.completed_at = datetime.utcnow()
         # Remove from queue
         db.query(Queue).filter(
@@ -272,11 +222,10 @@ async def update_patient_status(
 @router.post("/{patient_id}/refer")
 async def refer_patient(
     patient_id: int,
-    payload: ReferPatientRequest,
+    to_opd: OPDType,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.NURSING))
 ):
-    to_opd = payload.to_opd
     patient = db.query(Patient).filter(Patient.id == patient_id).first()
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
@@ -285,96 +234,46 @@ async def refer_patient(
     patient.referred_from = from_opd.value if from_opd else None
     patient.referred_to = to_opd.value
     patient.current_status = PatientStatus.REFERRED
-
-    # Keep patient in current OPD queue but mark their queue status as REFERRED
+    
+    # Remove from current OPD queue
     if from_opd:
-        queue_entry = db.query(Queue).filter(
+        db.query(Queue).filter(
             Queue.patient_id == patient_id,
             Queue.opd_type == from_opd
-        ).first()
-        if queue_entry:
-            queue_entry.status = PatientStatus.REFERRED
-
-    # Ensure patient is ALSO present in the destination OPD queue with REFERRED status
-    # Create only if not already present
-    to_queue_entry = db.query(Queue).filter(
-        Queue.patient_id == patient_id,
+        ).delete()
+    
+    # Add to new OPD queue
+    max_position = db.query(func.max(Queue.position)).filter(
         Queue.opd_type == to_opd
-    ).first()
-    if not to_queue_entry:
-        max_position_to = db.query(func.max(Queue.position)).filter(
-            Queue.opd_type == to_opd
-        ).scalar() or 0
-        to_queue_entry = Queue(
-            opd_type=to_opd,
-            patient_id=patient_id,
-            position=max_position_to + 1,
-            status=PatientStatus.REFERRED
-        )
-        db.add(to_queue_entry)
-    else:
-        # If exists, ensure status is REFERRED
-        to_queue_entry.status = PatientStatus.REFERRED
-
+    ).scalar() or 0
+    
+    queue_entry = Queue(
+        opd_type=to_opd,
+        patient_id=patient_id,
+        position=max_position + 1,
+        status=PatientStatus.PENDING
+    )
+    db.add(queue_entry)
+    
     # Log patient flow
     flow_entry = PatientFlow(
         patient_id=patient_id,
         from_room=f"opd_{from_opd.value}" if from_opd else None,
         to_room=f"opd_{to_opd.value}",
         status=PatientStatus.REFERRED,
-        notes=f"Referred from {from_opd.value if from_opd else 'registration'} to {to_opd.value}"
+        notes=f"Referred from {from_opd.value} to {to_opd.value}"
     )
     db.add(flow_entry)
     db.commit()
-
-    # Broadcast updates (update both OPD queues and global display)
+    
+    # Broadcast updates
     if from_opd:
         await broadcast_queue_update(from_opd, db)
     await broadcast_queue_update(to_opd, db)
     await broadcast_patient_status_update(patient_id, PatientStatus.REFERRED, db)
     await broadcast_display_update()
-
-    return {"message": f"Patient referred to {to_opd.value} and present in both queues as referred"}
-
-
-
-
     
-
-@router.get("/referred", response_model=List[ReferredPatientResponse])
-async def list_referred_patients(
-    from_opd: Optional[str] = Query(default=None, alias="from_opd"),
-    to_opd: Optional[str] = Query(default=None, alias="to_opd"),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    print("patients.py: list_referred_patients")
-    print(from_opd)
-    print(to_opd)
-    query = db.query(Patient).filter(Patient.current_status == PatientStatus.REFERRED)
-
-    valid_opds = {opd.value for opd in OPDType}
-    if from_opd and from_opd in valid_opds:
-        query = query.filter(Patient.referred_from == from_opd)
-    if to_opd and to_opd in valid_opds:
-        query = query.filter(Patient.referred_to == to_opd)
-
-    patients = query.order_by(Patient.registration_time.asc()).all()
-
-    # Map to response with from_opd and to_opd strings
-    result = []
-    for p in patients:
-        result.append(ReferredPatientResponse(
-            id=p.id,
-            token_number=p.token_number,
-            name=p.name,
-            age=p.age,
-            registration_time=p.registration_time,
-            from_opd=p.referred_from,
-            to_opd=p.referred_to,
-        ))
-
-    return result
+    return {"message": f"Patient referred from {from_opd.value if from_opd else 'registration'} to {to_opd.value}"}
 
 @router.get("/", response_model=List[PatientResponse])
 async def get_patients(
@@ -390,62 +289,3 @@ async def get_patients(
     
     patients = query.offset(skip).limit(limit).all()
     return patients
-
-
-
-
-@router.post("/{patient_id}/endvisit")
-async def end_patient_visit(
-    patient_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_role(UserRole.NURSING))
-):
-    patient = db.query(Patient).filter(Patient.id == patient_id).first()
-    if not patient:
-        raise HTTPException(status_code=404, detail="Patient not found")
-
-    # Store current OPD and room for broadcasting and logging before clearing them
-    opd_to_update = patient.allocated_opd
-    print("opd_to_update", opd_to_update)
-    from_room = patient.current_room
-    print("from_room", from_room)
-
-    # Update patient status and details
-    patient.current_status = PatientStatus.COMPLETED
-    patient.status = PatientStatus.COMPLETED
-    patient.completed_at = datetime.now()
-    patient.current_room = None # Patient is no longer in any active room
-    patient.allocated_opd = None # Patient is no longer allocated to an OPD
-    patient.referred_from = None # Clear referral status
-    patient.referred_to = None # Clear referral status
-
-    # Update queue entry for the OPD they were in (if any)
-    
-    queue_entry = db.query(Queue).filter(
-        Queue.patient_id == patient_id,
-        Queue.opd_type == opd_to_update
-    ).first()
-    print("queue_entry", queue_entry)
-    if queue_entry:
-        queue_entry.status = PatientStatus.COMPLETED # Mark as completed in queue
-
-    # Log patient flow
-    flow_entry = PatientFlow(
-        patient_id=patient_id,
-        from_room=from_room,
-        to_room="completed",
-        status=PatientStatus.COMPLETED,
-        notes="Patient visit completed"
-    )
-    db.add(flow_entry)
-    db.commit()
-    print("committed")
-    db.refresh(patient) # Refresh patient object to reflect latest DB state
-
-    # Broadcast updates
-    
-    await broadcast_queue_update(opd_to_update, db) # Update the queue they just left
-    await broadcast_patient_status_update(patient_id, PatientStatus.COMPLETED, db)
-    await broadcast_display_update()
-
-    return {"message": f"Patient {patient.token_number} visit completed."}

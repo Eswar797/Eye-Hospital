@@ -44,17 +44,8 @@ async def get_opd_queue(
 ):
     queue_entries = db.query(Queue).join(Patient).filter(
         Queue.opd_type == opd_type,
-        Queue.status.in_([PatientStatus.PENDING, PatientStatus.IN_OPD, PatientStatus.DILATED, PatientStatus.REFERRED])
+        Queue.status.in_([PatientStatus.PENDING, PatientStatus.IN_OPD, PatientStatus.DILATED])
     ).order_by(Queue.position).all()
-
-    print("**** get_opd_queue ****")
-    for entry in queue_entries:
-        print(entry.patient.name, entry.status)
-        if entry.status == PatientStatus.REFERRED:
-            # When a patient is referred TO this OPD, they should appear as PENDING in its queue
-            # for active management. This is an in-memory modification for display purposes
-            # in this specific queue view, not a database update.
-            entry.status = PatientStatus.PENDING
     
     queue_data = []
     for entry in queue_entries:

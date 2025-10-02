@@ -34,24 +34,12 @@ class TokenData(BaseModel):
 class UserLogin(BaseModel):
     username: str
     password: str
-    
-    def __init__(self, **data):
-        # Truncate password if it's too long
-        if 'password' in data and len(data['password'].encode('utf-8')) > 72:
-            data['password'] = data['password'][:72]
-        super().__init__(**data)
 
 class UserCreate(BaseModel):
     username: str
     email: str
     password: str
     role: UserRole
-    
-    def __init__(self, **data):
-        # Truncate password if it's too long
-        if 'password' in data and len(data['password'].encode('utf-8')) > 72:
-            data['password'] = data['password'][:72]
-        super().__init__(**data)
 
 class UserResponse(BaseModel):
     id: int
@@ -65,15 +53,9 @@ class UserResponse(BaseModel):
 
 # Utility functions
 def verify_password(plain_password, hashed_password):
-    # Truncate password to 72 bytes if it's longer (bcrypt limitation)
-    if len(plain_password.encode('utf-8')) > 72:
-        plain_password = plain_password[:72]
     return pwd_context.verify(plain_password, hashed_password)
 
 def get_password_hash(password):
-    # Truncate password to 72 bytes if it's longer (bcrypt limitation)
-    if len(password.encode('utf-8')) > 72:
-        password = password[:72]
     return pwd_context.hash(password)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
@@ -87,9 +69,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 
 def authenticate_user(db: Session, username: str, password: str):
-    print(f"Authenticating user: {username}")
     user = db.query(User).filter(User.username == username).first()
-    print(f"User: {user}")
     if not user:
         return False
     if not verify_password(password, user.hashed_password):

@@ -1,9 +1,0 @@
-#!/bin/sh
-'''exec' "/Users/vanshikasharma/Desktop/BITS/Sem 3/SAT/eye-hospital/Eye-Hospital/backend/myenv/bin/python3" "$0" "$@"
-' '''
-import sys
-from websockets.cli import main
-if __name__ == '__main__':
-    if sys.argv[0].endswith('.exe'):
-        sys.argv[0] = sys.argv[0][:-4]
-    sys.exit(main())

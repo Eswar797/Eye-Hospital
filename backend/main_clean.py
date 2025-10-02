@@ -142,10 +142,6 @@ async def allocate_opd(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.REGISTRATION))
 ):
-    print("/api/patients/{patient_id}/allocate-opd")
-    print(f"\n\nAllocating OPD: {request.opd_type}")
-    print(f"Patient ID: {patient_id}")
-    print(f"Patient: {patient}")
     opd_type = request.opd_type
     patient = db.query(Patient).filter(Patient.id == patient_id).first()
     if not patient:
