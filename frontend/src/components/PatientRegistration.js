@@ -37,6 +37,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
+import { parseApiError } from '../utils/errorHandler';
 
 const PatientRegistration = () => {
   const navigate = useNavigate();
@@ -98,7 +99,7 @@ const PatientRegistration = () => {
       setFormData({ name: '', age: '', phone: '' });
       fetchPatients();
     } catch (error) {
-      setError(error.response?.data?.detail || 'Registration failed');
+      setError(parseApiError(error));
     } finally {
       setLoading(false);
     }
@@ -123,7 +124,8 @@ const PatientRegistration = () => {
       setSelectedOpd('');
       fetchPatients();
     } catch (error) {
-      setError(error.response?.data?.detail || 'OPD allocation failed');
+      setError(parseApiError(error));
+      setOpdDialogOpen(false);
     }
   };
 

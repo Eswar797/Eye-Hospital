@@ -46,6 +46,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
+import { parseApiError } from '../utils/errorHandler';
 
 const AdminPanel = () => {
   const navigate = useNavigate();
@@ -160,7 +161,7 @@ const AdminPanel = () => {
       }
       handleCloseDialog();
     } catch (error) {
-      setError(error.response?.data?.detail || 'Operation failed');
+      setError(parseApiError(error));
     } finally {
       setLoading(false);
     }

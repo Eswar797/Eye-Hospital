@@ -10,6 +10,7 @@ import os
 from database_sqlite import engine, Base
 from routers import auth, patients, opd, admin, display, printing
 from websocket_manager import sio
+from middleware_error_handler import setup_error_handlers
 
 load_dotenv()
 
@@ -28,6 +29,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+# Setup error handlers
+setup_error_handlers(app)
 
 # CORS middleware - Allow frontend to access backend
 app.add_middleware(

@@ -28,6 +28,9 @@ import {
   Paper,
   Typography as MuiTypography,
   Divider,
+  Tooltip,
+  Popover,
+  CircularProgress,
 } from '@mui/material';
 import {
   ArrowBack,
@@ -39,11 +42,14 @@ import {
   PersonAdd,
   CheckCircle,
   Schedule,
+  CallEnd,
+  Timeline,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
 import axios from 'axios';
+import { parseApiError } from '../utils/errorHandler';
 
 const OPDManagement = () => {
   const navigate = useNavigate();
@@ -56,6 +62,10 @@ const OPDManagement = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [actionDialog, setActionDialog] = useState({ open: false, type: '', patient: null });
+  const [referredPatients, setReferredPatients] = useState([]);
+  const [flowHistoryAnchor, setFlowHistoryAnchor] = useState(null);
+  const [selectedPatientFlow, setSelectedPatientFlow] = useState([]);
+  const [loadingFlow, setLoadingFlow] = useState(false);
 
   const opdTypes = [
     { value: 'opd1', label: 'OPD 1' },
@@ -66,6 +76,7 @@ const OPDManagement = () => {
   useEffect(() => {
     fetchQueueData();
     fetchStats();
+    fetchReferredPatients();
     
     // Join OPD room for real-time updates
     joinOPD(selectedOpd);
@@ -101,6 +112,34 @@ const OPDManagement = () => {
     }
   };
 
+  const fetchReferredPatients = async () => {
+    try {
+      const response = await axios.get(`http://localhost:8000/api/patients/referred/${selectedOpd}`);
+      setReferredPatients(response.data);
+    } catch (error) {
+      console.error('Failed to fetch referred patients:', error);
+    }
+  };
+
+  const fetchPatientFlowHistory = async (patientId, event) => {
+    setFlowHistoryAnchor(event.currentTarget);
+    setLoadingFlow(true);
+    try {
+      const response = await axios.get(`http://localhost:8000/api/patients/${patientId}/flow-history`);
+      setSelectedPatientFlow(response.data);
+    } catch (error) {
+      console.error('Failed to fetch patient flow history:', error);
+      setError(parseApiError(error));
+    } finally {
+      setLoadingFlow(false);
+    }
+  };
+
+  const handleCloseFlowPopover = () => {
+    setFlowHistoryAnchor(null);
+    setSelectedPatientFlow([]);
+  };
+
   const handleCallNext = async () => {
     setLoading(true);
     try {
@@ -108,8 +147,24 @@ const OPDManagement = () => {
       setSuccess(response.data.message);
       fetchQueueData();
       fetchStats();
+      fetchReferredPatients();
     } catch (error) {
-      setError(error.response?.data?.detail || 'Failed to call next patient');
+      setError(parseApiError(error));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCallOutOfQueue = async (patientId) => {
+    setLoading(true);
+    try {
+      const response = await axios.post(`http://localhost:8000/api/opd/${selectedOpd}/call-out-of-queue/${patientId}`);
+      setSuccess(response.data.message);
+      fetchQueueData();
+      fetchStats();
+      fetchReferredPatients();
+    } catch (error) {
+      setError(parseApiError(error));
     } finally {
       setLoading(false);
     }
@@ -161,8 +216,9 @@ const OPDManagement = () => {
       setActionDialog({ open: false, type: '', patient: null });
       fetchQueueData();
       fetchStats();
+      fetchReferredPatients();
     } catch (error) {
-      setError(error.response?.data?.detail || 'Action failed');
+      setError(parseApiError(error));
     } finally {
       setLoading(false);
     }
@@ -346,13 +402,24 @@ const OPDManagement = () => {
                               />
                             )}
                             {patient.status === 'pending' && (
-                              <IconButton
-                                size="small"
-                                onClick={() => handleDilatePatient(patient)}
-                                color="secondary"
-                              >
-                                <Schedule />
-                              </IconButton>
+                              <>
+                                <Tooltip title="Call Out of Queue">
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => handleCallOutOfQueue(patient.patient_id)}
+                                    color="primary"
+                                  >
+                                    <CallEnd />
+                                  </IconButton>
+                                </Tooltip>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleDilatePatient(patient)}
+                                  color="secondary"
+                                >
+                                  <Schedule />
+                                </IconButton>
+                              </>
                             )}
                             {patient.status === 'dilated' && (
                               <IconButton
@@ -412,6 +479,144 @@ const OPDManagement = () => {
             </Card>
           </Grid>
         </Grid>
+
+        {/* Referred Patients Dashboard */}
+        {referredPatients.length > 0 && (
+          <Grid container spacing={3} sx={{ mt: 2 }}>
+            <Grid item xs={12}>
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>
+                    Referred Patients to {selectedOpd.toUpperCase()} ({referredPatients.length})
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Hover over a patient to see their OPD chain history
+                  </Typography>
+                  <List>
+                    {referredPatients.map((patient, index) => (
+                      <React.Fragment key={patient.id}>
+                        <ListItem
+                          onMouseEnter={(e) => fetchPatientFlowHistory(patient.id, e)}
+                          onMouseLeave={handleCloseFlowPopover}
+                          sx={{
+                            cursor: 'pointer',
+                            '&:hover': {
+                              bgcolor: 'action.hover',
+                            },
+                          }}
+                        >
+                          <ListItemText
+                            primary={`${patient.token_number} - ${patient.name}`}
+                            secondary={
+                              <>
+                                Age: {patient.age} | Phone: {patient.phone || 'N/A'}
+                                {patient.referred_from && (
+                                  <Chip
+                                    label={`From ${patient.referred_from.toUpperCase()}`}
+                                    size="small"
+                                    color="info"
+                                    sx={{ ml: 1 }}
+                                  />
+                                )}
+                              </>
+                            }
+                          />
+                          <ListItemSecondaryAction>
+                            <Box display="flex" alignItems="center" gap={1}>
+                              <Chip
+                                label="Referred"
+                                color="error"
+                                size="small"
+                              />
+                              <Tooltip title="View Flow History">
+                                <IconButton
+                                  size="small"
+                                  color="info"
+                                  onClick={(e) => fetchPatientFlowHistory(patient.id, e)}
+                                >
+                                  <Timeline />
+                                </IconButton>
+                              </Tooltip>
+                            </Box>
+                          </ListItemSecondaryAction>
+                        </ListItem>
+                        {index < referredPatients.length - 1 && <Divider />}
+                      </React.Fragment>
+                    ))}
+                  </List>
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+        )}
+
+        {/* OPD Chain/Flow History Popover */}
+        <Popover
+          open={Boolean(flowHistoryAnchor)}
+          anchorEl={flowHistoryAnchor}
+          onClose={handleCloseFlowPopover}
+          anchorOrigin={{
+            vertical: 'top',
+            horizontal: 'right',
+          }}
+          transformOrigin={{
+            vertical: 'top',
+            horizontal: 'left',
+          }}
+          sx={{
+            pointerEvents: 'none',
+          }}
+          disableRestoreFocus
+        >
+          <Paper sx={{ p: 2, maxWidth: 400, pointerEvents: 'auto' }}>
+            <Typography variant="h6" gutterBottom>
+              Patient OPD Chain History
+            </Typography>
+            {loadingFlow ? (
+              <Box display="flex" justifyContent="center" p={2}>
+                <CircularProgress size={24} />
+              </Box>
+            ) : selectedPatientFlow.length > 0 ? (
+              <List dense>
+                {selectedPatientFlow.map((flow, index) => (
+                  <React.Fragment key={flow.id}>
+                    <ListItem>
+                      <ListItemText
+                        primary={
+                          <Box display="flex" alignItems="center" gap={1}>
+                            <Typography variant="body2" fontWeight="bold">
+                              {flow.from_room || 'Start'} → {flow.to_room || 'End'}
+                            </Typography>
+                          </Box>
+                        }
+                        secondary={
+                          <>
+                            <Typography variant="caption" display="block">
+                              Status: {flow.status}
+                            </Typography>
+                            <Typography variant="caption" display="block">
+                              Time: {new Date(flow.timestamp).toLocaleString()}
+                            </Typography>
+                            {flow.notes && (
+                              <Typography variant="caption" display="block" color="primary">
+                                Notes: {flow.notes}
+                              </Typography>
+                            )}
+                          </>
+                        }
+                      />
+                    </ListItem>
+                    {index < selectedPatientFlow.length - 1 && <Divider />}
+                  </React.Fragment>
+                ))}
+              </List>
+            ) : (
+              <Typography variant="body2" color="text.secondary">
+                No flow history available
+              </Typography>
+            )}
+          </Paper>
+        </Popover>
 
         {/* Action Dialog */}
         <Dialog open={actionDialog.open} onClose={() => setActionDialog({ open: false, type: '', patient: null })}>

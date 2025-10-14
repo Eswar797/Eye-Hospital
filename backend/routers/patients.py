@@ -28,6 +28,16 @@ class PatientUpdate(BaseModel):
     referred_from: Optional[str] = None
     referred_to: Optional[str] = None
 
+class OPDAllocation(BaseModel):
+    opd_type: str
+
+class StatusUpdate(BaseModel):
+    status: str
+    notes: Optional[str] = None
+
+class ReferralRequest(BaseModel):
+    to_opd: str
+
 class PatientResponse(BaseModel):
     id: int
     token_number: str
@@ -107,16 +117,37 @@ async def register_patient(
     
     return db_patient
 
+# New endpoint to get referred patients for an OPD (must come before /{patient_id} to avoid conflicts)
+@router.get("/referred/{opd_type}", response_model=List[PatientResponse])
+async def get_referred_patients(
+    opd_type: OPDType,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get all patients that have been referred to this OPD"""
+    patients = db.query(Patient).filter(
+        Patient.referred_to == opd_type.value,
+        Patient.current_status.in_([PatientStatus.PENDING, PatientStatus.REFERRED])
+    ).all()
+    
+    return patients
+
 @router.post("/{patient_id}/allocate-opd")
 async def allocate_opd(
     patient_id: int,
-    opd_type: OPDType,
+    allocation: OPDAllocation,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.REGISTRATION))
 ):
     patient = db.query(Patient).filter(Patient.id == patient_id).first()
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
+    
+    # Convert string to OPDType enum
+    try:
+        opd_type = OPDType(allocation.opd_type)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid OPD type: {allocation.opd_type}")
     
     # Update patient OPD allocation
     patient.allocated_opd = opd_type
@@ -167,14 +198,19 @@ async def get_patient(
 @router.put("/{patient_id}/status")
 async def update_patient_status(
     patient_id: int,
-    status: PatientStatus,
-    notes: Optional[str] = None,
+    status_update: StatusUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.NURSING))
 ):
     patient = db.query(Patient).filter(Patient.id == patient_id).first()
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
+    
+    # Convert string to PatientStatus enum
+    try:
+        status = PatientStatus(status_update.status)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid status: {status_update.status}")
     
     old_status = patient.current_status
     patient.current_status = status
@@ -206,7 +242,7 @@ async def update_patient_status(
         patient_id=patient_id,
         from_room=patient.current_room,
         status=status,
-        notes=notes
+        notes=status_update.notes
     )
     db.add(flow_entry)
     db.commit()
@@ -217,18 +253,24 @@ async def update_patient_status(
     await broadcast_patient_status_update(patient_id, status, db)
     await broadcast_display_update()
     
-    return {"message": f"Patient status updated to {status}"}
+    return {"message": f"Patient status updated to {status.value}"}
 
 @router.post("/{patient_id}/refer")
 async def refer_patient(
     patient_id: int,
-    to_opd: OPDType,
+    referral: ReferralRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.NURSING))
 ):
     patient = db.query(Patient).filter(Patient.id == patient_id).first()
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
+    
+    # Convert string to OPDType enum
+    try:
+        to_opd = OPDType(referral.to_opd)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid OPD type: {referral.to_opd}")
     
     from_opd = patient.allocated_opd
     patient.referred_from = from_opd.value if from_opd else None
@@ -289,3 +331,33 @@ async def get_patients(
     
     patients = query.offset(skip).limit(limit).all()
     return patients
+
+# New endpoint to get patient flow/OPD chain history
+class PatientFlowResponse(BaseModel):
+    id: int
+    patient_id: int
+    from_room: Optional[str]
+    to_room: Optional[str]
+    status: PatientStatus
+    timestamp: datetime
+    notes: Optional[str]
+
+    class Config:
+        from_attributes = True
+
+@router.get("/{patient_id}/flow-history", response_model=List[PatientFlowResponse])
+async def get_patient_flow_history(
+    patient_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get the complete OPD chain/flow history for a patient"""
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    
+    flow_history = db.query(PatientFlow).filter(
+        PatientFlow.patient_id == patient_id
+    ).order_by(PatientFlow.timestamp.asc()).all()
+    
+    return flow_history
