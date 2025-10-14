@@ -1,5 +1,12 @@
-from escpos.printer import Network
-from escpos.printer import Usb
+try:
+    from escpos.printer import Network
+    from escpos.printer import Usb
+    ESCPOS_AVAILABLE = True
+except ImportError:
+    ESCPOS_AVAILABLE = False
+    Network = None
+    Usb = None
+
 from PIL import Image, ImageDraw, ImageFont
 import io
 import os
@@ -17,6 +24,11 @@ class PrinterManager:
 
     def _initialize_printer(self):
         """Initialize the printer connection"""
+        if not ESCPOS_AVAILABLE:
+            logger.warning("escpos library not available - printer functionality disabled")
+            self.printer = None
+            return
+            
         try:
             # Try network printer first
             self.printer = Network(self.printer_ip, port=self.printer_port)

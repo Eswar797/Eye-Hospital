@@ -23,7 +23,7 @@ def init_database():
     # Create all tables
     print("Creating database tables...")
     Base.metadata.create_all(bind=engine)
-    print("✓ Database tables created")
+    print("[OK] Database tables created")
     
     # Create session
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -44,9 +44,9 @@ def init_database():
                 is_active=True
             )
             db.add(admin_user)
-            print("✓ Admin user created (admin/admin123)")
+            print("[OK] Admin user created (admin/admin123)")
         else:
-            print("✓ Admin user already exists")
+            print("[OK] Admin user already exists")
         
         # Check if registration user exists
         reg_user = db.query(User).filter(User.username == "reg").first()
@@ -59,9 +59,9 @@ def init_database():
                 is_active=True
             )
             db.add(reg_user)
-            print("✓ Registration user created (reg/reg123)")
+            print("[OK] Registration user created (reg/reg123)")
         else:
-            print("✓ Registration user already exists")
+            print("[OK] Registration user already exists")
         
         # Check if nursing user exists
         nurse_user = db.query(User).filter(User.username == "nurse").first()
@@ -74,9 +74,9 @@ def init_database():
                 is_active=True
             )
             db.add(nurse_user)
-            print("✓ Nursing user created (nurse/nurse123)")
+            print("[OK] Nursing user created (nurse/nurse123)")
         else:
-            print("✓ Nursing user already exists")
+            print("[OK] Nursing user already exists")
         
         # Create initial rooms
         print("Creating initial rooms...")
@@ -102,16 +102,16 @@ def init_database():
                     is_active=True
                 )
                 db.add(room)
-                print(f"✓ Room {room_data['room_number']} created")
+                print(f"[OK] Room {room_data['room_number']} created")
             else:
-                print(f"✓ Room {room_data['room_number']} already exists")
+                print(f"[OK] Room {room_data['room_number']} already exists")
         
         # Commit all changes
         db.commit()
-        print("✓ Database initialization completed successfully")
+        print("[OK] Database initialization completed successfully")
         
     except Exception as e:
-        print(f"✗ Error during initialization: {e}")
+        print(f"[ERROR] Error during initialization: {e}")
         db.rollback()
         sys.exit(1)
     finally:

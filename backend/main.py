@@ -29,13 +29,14 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware
+# CORS middleware - Allow frontend to access backend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://127.0.0.1:3000"],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # Include routers
@@ -56,6 +57,41 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
+@app.get("/test-auth")
+async def test_auth():
+    """Test authentication system"""
+    try:
+        from database_sqlite import SessionLocal, User
+        from auth import verify_password, authenticate_user
+        
+        db = SessionLocal()
+        user = db.query(User).filter(User.username == "admin").first()
+        
+        if not user:
+            return {"error": "User not found"}
+        
+        # Test password verification
+        password_test = verify_password("admin123", user.hashed_password)
+        
+        # Test authenticate_user
+        auth_test = authenticate_user(db, "admin", "admin123")
+        
+        db.close()
+        
+        return {
+            "user_found": True,
+            "username": user.username,
+            "password_verify": password_test,
+            "authenticate_user": auth_test is not False,
+            "status": "ok"
+        }
+    except Exception as e:
+        import traceback
+        return {
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
 
 if __name__ == "__main__":
     uvicorn.run(
