@@ -31,6 +31,7 @@ import {
   Tooltip,
   Popover,
   CircularProgress,
+  Snackbar,
 } from '@mui/material';
 import {
   ArrowBack,
@@ -44,6 +45,7 @@ import {
   Schedule,
   CallEnd,
   Timeline,
+  Error as ErrorIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -346,18 +348,6 @@ const OPDManagement = () => {
               </Paper>
             </Grid>
           </Grid>
-        )}
-
-        {/* Alerts */}
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
-          </Alert>
-        )}
-        {success && (
-          <Alert severity="success" sx={{ mb: 2 }}>
-            {success}
-          </Alert>
         )}
 
         <Grid container spacing={3}>
@@ -674,6 +664,76 @@ const OPDManagement = () => {
             </Button>
           </DialogActions>
         </Dialog>
+
+        {/* Success Snackbar - Positioned on the right */}
+        <Snackbar
+          open={!!success}
+          autoHideDuration={4000}
+          onClose={() => setSuccess('')}
+          anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+        >
+          <Alert 
+            onClose={() => setSuccess('')} 
+            severity="success"
+            icon={false}
+            sx={{ 
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              '& .MuiAlert-message': {
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between'
+              },
+              '& .MuiAlert-action': {
+                paddingLeft: '16px',
+                marginLeft: 'auto',
+                paddingTop: 0
+              }
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
+              <span>{success}</span>
+              <CheckCircle sx={{ color: 'success.main' }} />
+            </Box>
+          </Alert>
+        </Snackbar>
+
+        {/* Error Snackbar - Positioned on the right */}
+        <Snackbar
+          open={!!error}
+          autoHideDuration={4000}
+          onClose={() => setError('')}
+          anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+        >
+          <Alert 
+            onClose={() => setError('')} 
+            severity="error"
+            icon={false}
+            sx={{ 
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              '& .MuiAlert-message': {
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between'
+              },
+              '& .MuiAlert-action': {
+                paddingLeft: '16px',
+                marginLeft: 'auto',
+                paddingTop: 0
+              }
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
+              <span>{error}</span>
+              <ErrorIcon sx={{ color: 'error.main' }} />
+            </Box>
+          </Alert>
+        </Snackbar>
       </Container>
     </Box>
   );

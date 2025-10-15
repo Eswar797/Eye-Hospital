@@ -26,6 +26,8 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Snackbar,
+  Tooltip,
 } from '@mui/material';
 import {
   ArrowBack,
@@ -33,6 +35,7 @@ import {
   Print,
   Refresh,
   CheckCircle,
+  Error as ErrorIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -54,6 +57,9 @@ const PatientRegistration = () => {
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [opdDialogOpen, setOpdDialogOpen] = useState(false);
   const [selectedOpd, setSelectedOpd] = useState('');
+  const [filterName, setFilterName] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterDate, setFilterDate] = useState('');
 
   const opdTypes = [
     { value: 'opd1', label: 'OPD 1' },
@@ -151,6 +157,15 @@ const PatientRegistration = () => {
     return statusLabels[status] || status;
   };
 
+  const getFilteredPatients = () => {
+    return patients.filter(patient => {
+      const nameMatch = patient.name.toLowerCase().includes(filterName.toLowerCase());
+      const statusMatch = !filterStatus || patient.current_status === filterStatus;
+      const dateMatch = !filterDate || new Date(patient.registration_time).toISOString().split('T')[0] === filterDate;
+      return nameMatch && statusMatch && dateMatch;
+    });
+  };
+
   return (
     <Box sx={{ flexGrow: 1 }}>
       <AppBar position="static">
@@ -181,18 +196,6 @@ const PatientRegistration = () => {
                 <Typography variant="h6" gutterBottom>
                   Register New Patient
                 </Typography>
-                
-                {error && (
-                  <Alert severity="error" sx={{ mb: 2 }}>
-                    {error}
-                  </Alert>
-                )}
-                
-                {success && (
-                  <Alert severity="success" sx={{ mb: 2 }}>
-                    {success}
-                  </Alert>
-                )}
 
                 <Box component="form" onSubmit={handleSubmit}>
                   <TextField
@@ -248,48 +251,11 @@ const PatientRegistration = () => {
                   Recent Patients
                 </Typography>
                 <List>
-                  {patients.slice(0, 10).map((patient) => (
+                  {patients.slice(0, 5).map((patient) => (
                     <ListItem key={patient.id} divider>
                       <ListItemText
                         primary={`${patient.token_number} - ${patient.name}`}
-                        secondary={`Age: ${patient.age} | Status: ${getStatusLabel(patient.current_status)}`}
-                      />
-                      <ListItemSecondaryAction>
-                        <Chip
-                          label={getStatusLabel(patient.current_status)}
-                          color={getStatusColor(patient.current_status)}
-                          size="small"
-                        />
-                        {!patient.allocated_opd && (
-                          <IconButton
-                            edge="end"
-                            onClick={() => handleAllocateOpd(patient)}
-                            color="primary"
-                          >
-                            <PersonAdd />
-                          </IconButton>
-                        )}
-                      </ListItemSecondaryAction>
-                    </ListItem>
-                  ))}
-                </List>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          {/* All Patients Table */}
-          <Grid item xs={12}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  All Patients
-                </Typography>
-                <List>
-                  {patients.map((patient) => (
-                    <ListItem key={patient.id} divider>
-                      <ListItemText
-                        primary={`${patient.token_number} - ${patient.name}`}
-                        secondary={`Age: ${patient.age} | Phone: ${patient.phone || 'N/A'} | Registered: ${new Date(patient.registration_time).toLocaleString()}`}
+                        secondary={`Age: ${patient.age} | Phone: ${patient.phone || 'N/A'} | Registered: ${new Date(patient.registration_time).toLocaleTimeString()}`}
                       />
                       <ListItemSecondaryAction>
                         <Box display="flex" alignItems="center" gap={1}>
@@ -306,19 +272,113 @@ const PatientRegistration = () => {
                             />
                           )}
                           {!patient.allocated_opd && (
-                            <IconButton
-                              edge="end"
-                              onClick={() => handleAllocateOpd(patient)}
-                              color="primary"
-                            >
-                              <PersonAdd />
-                            </IconButton>
+                            <Tooltip title="Allocate OPD">
+                              <IconButton
+                                edge="end"
+                                onClick={() => handleAllocateOpd(patient)}
+                                color="primary"
+                              >
+                                <PersonAdd />
+                              </IconButton>
+                            </Tooltip>
                           )}
                         </Box>
                       </ListItemSecondaryAction>
                     </ListItem>
                   ))}
                 </List>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* All Patients Table */}
+          <Grid item xs={12}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  All Patients
+                </Typography>
+                
+                {/* Filters */}
+                <Grid container spacing={2} sx={{ mb: 2 }}>
+                  <Grid item xs={12} sm={4}>
+                    <TextField
+                      fullWidth
+                      label="Filter by Name"
+                      value={filterName}
+                      onChange={(e) => setFilterName(e.target.value)}
+                      size="small"
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <TextField
+                      fullWidth
+                      label="Filter by Date"
+                      type="date"
+                      value={filterDate}
+                      onChange={(e) => setFilterDate(e.target.value)}
+                      InputLabelProps={{ shrink: true }}
+                      size="small"
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Filter by Status</InputLabel>
+                      <Select
+                        value={filterStatus}
+                        onChange={(e) => setFilterStatus(e.target.value)}
+                        label="Filter by Status"
+                      >
+                        <MenuItem value="">All</MenuItem>
+                        <MenuItem value="pending">Pending</MenuItem>
+                        <MenuItem value="in">In OPD</MenuItem>
+                        <MenuItem value="dilated">Dilated</MenuItem>
+                        <MenuItem value="referred">Referred</MenuItem>
+                        <MenuItem value="end_visit">Completed</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                </Grid>
+
+                <Box sx={{ maxHeight: '400px', overflowY: 'auto' }}>
+                  <List>
+                    {getFilteredPatients().map((patient) => (
+                      <ListItem key={patient.id} divider>
+                        <ListItemText
+                          primary={`${patient.token_number} - ${patient.name}`}
+                          secondary={`Age: ${patient.age} | Phone: ${patient.phone || 'N/A'} | Registered: ${new Date(patient.registration_time).toLocaleString()}`}
+                        />
+                        <ListItemSecondaryAction>
+                          <Box display="flex" alignItems="center" gap={1}>
+                            <Chip
+                              label={getStatusLabel(patient.current_status)}
+                              color={getStatusColor(patient.current_status)}
+                              size="small"
+                            />
+                            {patient.allocated_opd && (
+                              <Chip
+                                label={patient.allocated_opd.toUpperCase()}
+                                color="primary"
+                                size="small"
+                              />
+                            )}
+                            {!patient.allocated_opd && (
+                              <Tooltip title="Allocate OPD">
+                                <IconButton
+                                  edge="end"
+                                  onClick={() => handleAllocateOpd(patient)}
+                                  color="primary"
+                                >
+                                  <PersonAdd />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                          </Box>
+                        </ListItemSecondaryAction>
+                      </ListItem>
+                    ))}
+                  </List>
+                </Box>
               </CardContent>
             </Card>
           </Grid>
@@ -353,6 +413,76 @@ const PatientRegistration = () => {
             </Button>
           </DialogActions>
         </Dialog>
+
+        {/* Success Snackbar - Positioned on the right */}
+        <Snackbar
+          open={!!success}
+          autoHideDuration={4000}
+          onClose={() => setSuccess('')}
+          anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+        >
+          <Alert 
+            onClose={() => setSuccess('')} 
+            severity="success"
+            icon={false}
+            sx={{ 
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              '& .MuiAlert-message': {
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between'
+              },
+              '& .MuiAlert-action': {
+                paddingLeft: '16px',
+                marginLeft: 'auto',
+                paddingTop: 0
+              }
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
+              <span>{success}</span>
+              <CheckCircle sx={{ color: 'success.main' }} />
+            </Box>
+          </Alert>
+        </Snackbar>
+
+        {/* Error Snackbar - Positioned on the right */}
+        <Snackbar
+          open={!!error}
+          autoHideDuration={4000}
+          onClose={() => setError('')}
+          anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+        >
+          <Alert 
+            onClose={() => setError('')} 
+            severity="error"
+            icon={false}
+            sx={{ 
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              '& .MuiAlert-message': {
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between'
+              },
+              '& .MuiAlert-action': {
+                paddingLeft: '16px',
+                marginLeft: 'auto',
+                paddingTop: 0
+              }
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
+              <span>{error}</span>
+              <ErrorIcon sx={{ color: 'error.main' }} />
+            </Box>
+          </Alert>
+        </Snackbar>
       </Container>
     </Box>
   );
